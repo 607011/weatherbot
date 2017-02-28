@@ -20,17 +20,26 @@ from pprint import pprint
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
 from pyowm.openweathermap import OpenWeatherMap, degree_to_meteo
-from utils import easydict, get_image_from_url
-
+from utils import *
+from enum import Enum
 
 APPNAME = "weatherbot"
+
+# global variables needed for ChatHandler (which unfortunately doesn't allow extra **kwargs)
+verbose = False
+authorized_users = None
+settings = easydict()
+scheduler = BackgroundScheduler()
+bot = None
+owm_api_key = None
+owm = None
 
 
 def send_weather_report(bot, chat_id, city_id):
     global owm
     w = owm.current(city_id)
     msg = "*Current weather in {}*\n\n" \
-          "*{:s}* {:.0f} °C ({:.0f} – {:.0f})\n" \
+          "*{:s}* {:.0f} °C ({:.0f} – {:.0f} °C)\n" \
           "wind {:.0f} km/h from {:s}\n" \
           "{}% humidity\n" \
           "sunrise {} / sunset {}\n\n" \
@@ -113,6 +122,16 @@ def settings_days(chat_id):
         if type(settings[chat_id]["forecast"]["city_id"]) is int else ChatUser.DefaultCityId
 
 
+def read_settings(chat_id):
+    global settings
+    return settings[chat_id]
+
+
+def write_settings(chat_id, new_settings):
+    global settings
+    settings[chat_id] = new_settings
+
+
 class ChatUser(telepot.helper.ChatHandler):
 
     DefaultCity = "Burgdorf"
@@ -120,14 +139,28 @@ class ChatUser(telepot.helper.ChatHandler):
     DefaultForecastDays = 7
     DefaultHour = 6
 
+    class State(Enum):
+        Default = 1
+        AwaitingCityName = 2
+        AwaitingCitySelection = 3
+
     def __init__(self, *args, **kwargs):
         global verbose
         super(ChatUser, self).__init__(*args, **kwargs)
         self.verbose = verbose
         self.owm_job = None
+        self.state = ChatUser.State.Default
+        self.city_id = ChatUser.DefaultCityId
+        self.city = ChatUser.DefaultCity
+        self.forecast_days = ChatUser.DefaultForecastDays
+        self.hour = ChatUser.DefaultHour
+        self.settings = easydict()
+        print(self.chat_id)
 
     def open(self, initial_msg, seed):
         content_type, chat_type, chat_id = telepot.glance(initial_msg)
+        self.settings = read_settings(chat_id)
+        pprint(self.settings)
         self.init_scheduler(chat_id)
 
     def init_scheduler(self, chat_id):
@@ -144,6 +177,12 @@ class ChatUser(telepot.helper.ChatHandler):
         pass
 
     def on_close(self, msg):
+        pprint(msg)
+        content_type, chat_type, chat_id = telepot.glance(msg)
+        if chat_id == self.chat_id:
+            write_settings(self.chat_id, self.settings)
+        else:
+            print("Warning: received chat_id doesn't equal self.chat_id.")
         if self.verbose:
             print("on_close() called. {}".format(msg))
         if type(self.owm_job) is Job:
@@ -164,17 +203,17 @@ class ChatUser(telepot.helper.ChatHandler):
         if query_data == "7d":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Simple weather forecast for {}".format(settings_city(query_id)))
+                text="Simple weather forecast for {}".format(settings_city(from_id)))
             send_weather_forecast(self.bot, from_id, settings_city_id(from_id), settings_days(from_id))
         elif query_data == "3h":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Detailed weather forecast for {}".format(settings_city(query_id)))
+                text="Detailed weather forecast for {}".format(settings_city(from_id)))
             send_weather_forecast_3h(self.bot, from_id, settings_city_id(from_id))
         elif query_data == "current":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Current weather report for {}".format(settings_city(query_id)))
+                text="Current weather report for {}".format(settings_city(from_id)))
             send_weather_report(self.bot, from_id, settings_city_id(from_id))
         else:
             pass
@@ -183,47 +222,43 @@ class ChatUser(telepot.helper.ChatHandler):
     def on_chat_message(self, msg):
         global scheduler
         content_type, chat_type, chat_id = telepot.glance(msg)
+        print(chat_id, self.chat_id)
         if content_type == "text":
             if self.verbose:
                 pprint(msg)
             msg_text = msg["text"]
-            if msg_text.startswith("/start"):
-                self.sender.sendMessage("*Hi there, I'm your personal meteorological bot!*",
-                                        parse_mode="Markdown")
-                self.send_main_menu()
-            elif msg_text.startswith("/weather") or msg_text.startswith("wetter"):
-                c = msg_text.split()[1:]
-                subcmd = c[0].lower() if len(c) > 0 else None
-                if subcmd is None or subcmd == "current":
-                    send_weather_report(self.bot, chat_id, settings_city_id(chat_id))
-                elif subcmd == "simple":
-                    send_weather_forecast(self.bot, chat_id, settings_city_id(chat_id), settings_days(chat_id))
-                elif subcmd in ["detailed", "3h"]:
-                    send_weather_forecast_3h(self.bot, chat_id, settings_city_id(chat_id))
-            elif msg_text.startswith("/help"):
-                self.sender.sendMessage("Available commands:\n\n"
-                                        "/help show this message\n"
-                                        "/weather Current weather report\n"
-                                        "/weather `simple` simple weather forecast\n"
-                                        "/weather `detailed` detailed weather forecast\n"
-                                        "/start (re)start the bot\n",
-                                        parse_mode="Markdown")
-            elif msg_text.startswith("/"):
-                self.sender.sendMessage("Unknown command. Type /help for further info.")
-            else:
-                self.sender.sendMessage("I'd don't like to chat. Enter /help for more info.")
+            if self.state == ChatUser.State.Default:
+                if msg_text.startswith("/start"):
+                    self.sender.sendMessage("*Hi there, I'm your personal meteorological bot!*",
+                                            parse_mode="Markdown")
+                    self.send_main_menu()
+                elif msg_text.startswith("/weather") or msg_text.startswith("wetter"):
+                    c = msg_text.split()[1:]
+                    subcmd = c[0].lower() if len(c) > 0 else None
+                    if subcmd is None or subcmd == "current":
+                        send_weather_report(self.bot, chat_id, settings_city_id(chat_id))
+                    elif subcmd == "simple":
+                        send_weather_forecast(self.bot, chat_id, settings_city_id(chat_id), settings_days(chat_id))
+                    elif subcmd in ["detailed", "3h"]:
+                        send_weather_forecast_3h(self.bot, chat_id, settings_city_id(chat_id))
+                elif msg_text.startswith("/help"):
+                    self.sender.sendMessage("Available commands:\n\n"
+                                            "/help show this message\n"
+                                            "/weather Current weather report\n"
+                                            "/weather `simple` simple weather forecast\n"
+                                            "/weather `detailed` detailed weather forecast\n"
+                                            "/start (re)start the bot\n",
+                                            parse_mode="Markdown")
+                elif msg_text.startswith("/"):
+                    self.sender.sendMessage("Unknown command. Type /help for further info.")
+                else:
+                    self.sender.sendMessage("I'd don't like to chat. Enter /help for more info.")
+            elif self.state == ChatUser.State.AwaitingCityName:
+                pass
+            elif self.state == ChatUser.State.AwaitingCitySelection:
+                pass
         else:
             self.sender.sendMessage("Your '{}' has been moved to Nirvana ...".format(content_type))
-
-
-# global variables needed for ChatHandler (which unfortunately doesn't allow extra **kwargs)
-verbose = False
-authorized_users = None
-settings = easydict()
-scheduler = BackgroundScheduler()
-bot = None
-owm_api_key = None
-owm = None
 
 
 def main():
@@ -236,12 +271,10 @@ def main():
         with open(config_filename, "r") as config_file:
             config = json.load(config_file)
     except FileNotFoundError:
-        print("Error: config file '{}' not found: {}"
-              .format(config_filename))
+        print("Error: config file '{}' not found: {}".format(config_filename))
         return
     except ValueError as e:
-        print("Error: invalid config file '{}': {}"
-              .format(config_filename, e))
+        print("Error: invalid config file '{}': {}".format(config_filename, e))
         return
     telegram_bot_token = config.get("telegram_bot_token")
     if not telegram_bot_token:
@@ -251,7 +284,7 @@ def main():
     if type(authorized_users) is not list or len(authorized_users) == 0:
         print("Error: config file doesn't contain an `authorized_users` list")
         return
-    verbose = config.get("verbose")
+    verbose = config.get("verbose", True)
     owm_api_key = config.get("openweathermap", {}).get("api_key")
     owm = OpenWeatherMap(owm_api_key) if owm_api_key else None
     bot = telepot.DelegatorBot(telegram_bot_token, [
