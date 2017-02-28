@@ -98,6 +98,21 @@ def send_weather_forecast_3h(bot, chat_id, city_id, n=48):
         bot.sendMessage(chat_id, "Currently no weather data available.")
 
 
+class Settings:
+    DefaultCity = "Burgdorf"
+    DefaultCityId = 2941405
+    DefaultForecastDays = 7
+    DefaultHour = 6
+
+    def __init__(self):
+        self.report_hour = Settings.DefaultCity
+        self.forecast_city_id = Settings.DefaultCityId
+        self.forecast_city = Settings.DefaultCity
+        self.forecast_days = Settings.DefaultForecastDays
+
+    # TODO: move following functions here ...
+
+
 def settings_hour(chat_id):
     global settings
     return settings[chat_id]["report"]["hour"] \
@@ -118,8 +133,8 @@ def settings_city(chat_id):
 
 def settings_days(chat_id):
     global settings
-    return settings[chat_id]["forecast"]["city_id"] \
-        if type(settings[chat_id]["forecast"]["city_id"]) is int else ChatUser.DefaultCityId
+    return settings[chat_id]["forecast"]["days"] \
+        if type(settings[chat_id]["forecast"]["days"]) is int else ChatUser.DefaultCityId
 
 
 def read_settings(chat_id):
