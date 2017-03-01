@@ -11,9 +11,7 @@
 """
 
 
-import json
 import telepot
-import shelve
 from telepot.namedtuple import InlineKeyboardMarkup, InlineKeyboardButton
 from telepot.delegate import per_chat_id_in, create_open, pave_event_space, include_callback_query_chat_id
 from pprint import pprint
@@ -106,7 +104,7 @@ class Settings(PersistentDict):
     DefaultHour = 6
 
     def __init__(self, chat_id):
-        super(Settings, self).__init__(".weatherbot-{}.settings.json".format(chat_id))
+        super(Settings, self).__init__(".weatherbot-settings-{}.json".format(chat_id))
         self["chat_id"] = chat_id
         self["report_hour"] = self.get("report_hour", Settings.DefaultHour)
         self["city_id"] = self.get("city_id", Settings.DefaultCityId)
@@ -116,11 +114,6 @@ class Settings(PersistentDict):
 
 
 class ChatUser(telepot.helper.ChatHandler):
-
-    DefaultCity = "Burgdorf"
-    DefaultCityId = 2941405
-    DefaultForecastDays = 7
-    DefaultHour = 6
 
     class State(Enum):
         Default = 1
@@ -233,6 +226,7 @@ class ChatUser(telepot.helper.ChatHandler):
                     self.sender.sendMessage("Unknown command. Type /help for further info.")
                 else:
                     self.sender.sendMessage("Enter /help for more info.")
+
             elif self.state == ChatUser.State.AwaitingCityName:
                 self.city_choices = list(city_list.find(msg_text))
                 if len(self.city_choices) > 1:
@@ -250,6 +244,7 @@ class ChatUser(telepot.helper.ChatHandler):
                 else:
                     self.sender.sendMessage("There's no weather data available for {}. Please try again."
                                             .format(msg_text))
+
             elif self.state == ChatUser.State.AwaitingCitySelection:
                 try:
                     idx = int(msg_text) - 1
