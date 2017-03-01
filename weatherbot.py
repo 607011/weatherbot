@@ -225,7 +225,9 @@ class ChatUser(telepot.helper.ChatHandler):
                 elif msg_text.startswith("/help"):
                     self.send_help()
                 elif msg_text.startswith("/selectcity"):
-                    self.sender.sendMessage("Type the name of your city.")
+                    self.sender.sendMessage("The currently selected city is \"{}\". "
+                                            "Tell me the name of the city you'd like reports/forecasts for."
+                                            .format(self.settings["city"]))
                     self.state = ChatUser.State.AwaitingCityName
                 elif msg_text.startswith("/"):
                     self.sender.sendMessage("Unknown command. Type /help for further info.")
@@ -241,20 +243,28 @@ class ChatUser(telepot.helper.ChatHandler):
                 elif len(self.city_choices) == 1:
                     self.settings["city"] = self.city_choices[0]["name"]
                     self.settings["city_id"] = self.city_choices[0]["_id"]
-                    self.sender.sendMessage("City '{}' selected.".format(self.settings["city"]))
-                    self.settings.sync()
-                    self.state = ChatUser.State.Default
-            elif self.state == ChatUser.State.AwaitingCitySelection:
-                idx = int(msg_text) - 1
-                if idx >= 0 and idx < len(self.city_choices):
-                    self.settings["city"] = self.city_choices[idx]["name"]
-                    self.settings["city_id"] = self.city_choices[idx]["_id"]
-                    self.sender.sendMessage("City '{}' (#{:d}) selected."
-                                            .format(self.settings["city"], self.settings["city_id"]))
+                    self.sender.sendMessage("From now on you'll receive reports/forecasts for {}."
+                                            .format(self.settings["city"]))
                     self.settings.sync()
                     self.state = ChatUser.State.Default
                 else:
-                    self.send_city_choices("Invalid selection. Please try again.")
+                    self.sender.sendMessage("There's no weather data available for {}. Please try again."
+                                            .format(msg_text))
+            elif self.state == ChatUser.State.AwaitingCitySelection:
+                try:
+                    idx = int(msg_text) - 1
+                except ValueError:
+                    self.sender.sendMessage("Please type a number between 1 and {}.".format(len(self.city_choices)))
+                else:
+                    if idx >= 0 and idx < len(self.city_choices):
+                        self.settings["city"] = self.city_choices[idx]["name"]
+                        self.settings["city_id"] = self.city_choices[idx]["_id"]
+                        self.sender.sendMessage("All further reports/forecasts will refer to \"{}\" (#{:d})."
+                                                .format(self.settings["city"], self.settings["city_id"]))
+                        self.settings.sync()
+                        self.state = ChatUser.State.Default
+                    else:
+                        self.send_city_choices("Invalid selection. Please try again.")
         else:
             self.sender.sendMessage("Your '{}' has been moved to Nirvana ...".format(content_type))
 
@@ -268,13 +278,18 @@ class ChatUser(telepot.helper.ChatHandler):
                         city["coord"]["lat"], city["coord"]["lon"],
                         city["_id"])
             code += 1
+        msg += "\nHint: "\
+                "You can tap/click on the coordinates to open Google Maps "\
+                "at the respective latitude/longitude "\
+                "if you're unsure which option is correct."
         self.sender.sendMessage(msg, parse_mode="HTML")
         self.state = ChatUser.State.AwaitingCitySelection
 
     def send_help(self):
         self.sender.sendMessage("Available commands:\n\n"
                                 "/help show this message\n"
-                                "/weather Current weather report\n"
+                                "/weather Show weather report/forecast options\n"
+                                "/weather `current` current weather\n"
                                 "/weather `simple` simple weather forecast\n"
                                 "/weather `detailed` detailed weather forecast\n"
                                 "/selectcity select the city you want reports and forecasts for\n"
