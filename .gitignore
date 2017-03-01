@@ -1,4 +1,4 @@
-.weatherbot.shelf
 weatherbot-config.json
+.weatherbot-*.settings.json
 .DS_Store
 .idea
