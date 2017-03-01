@@ -19,7 +19,7 @@ from telepot.delegate import per_chat_id_in, create_open, pave_event_space, incl
 from pprint import pprint
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
-from pyowm.openweathermap import OpenWeatherMap, degree_to_meteo
+from pyowm.openweathermap import *
 from utils import *
 from enum import Enum
 
@@ -28,16 +28,16 @@ APPNAME = "weatherbot"
 # global variables needed for ChatHandler (which unfortunately doesn't allow extra **kwargs)
 verbose = False
 authorized_users = None
-settings = easydict()
 scheduler = BackgroundScheduler()
 bot = None
 owm_api_key = None
 owm = None
+city_list = None
 
 
-def send_weather_report(bot, chat_id, city_id):
+def send_weather_report(bot, settings):
     global owm
-    w = owm.current(city_id)
+    w = owm.current(settings["city_id"])
     msg = "*Current weather in {}*\n\n" \
           "*{:s}* {:.0f} °C ({:.0f} – {:.0f} °C)\n" \
           "wind {:.0f} km/h from {:s}\n" \
@@ -51,32 +51,32 @@ def send_weather_report(bot, chat_id, city_id):
                   w.humidity,
                   w.sunrise.strftime("%H:%M"),
                   w.sunset.strftime("%H:%M"))
-    bot.sendMessage(chat_id, msg, parse_mode="Markdown")
+    bot.sendMessage(settings["chat_id"], msg, parse_mode="Markdown")
 
 
-def send_weather_forecast(bot, chat_id, city_id, days=7):
+def send_weather_forecast(bot, settings):
     global owm
-    msg = "*Weather forecast for {}*\n\n".format("Burgdorf")
+    msg = "*Weather forecast for {}*\n\n".format(settings["city"])
     try:
-        for forecast in owm.forecast_daily(city_id, days):
+        for forecast in owm.forecast_daily(settings["city_id"], settings["forecast_days"]):
             msg += "*{}*\n{:s}, {:.0f} – {:.0f} °C, wind {:.0f} km/h from {:s}\n\n" \
                 .format(forecast.date.strftime("%a %d.%m."),
                         forecast.description,
                         forecast.temp_min, forecast.temp_max,
                         forecast.wind_speed,
                         degree_to_meteo(forecast.wind_degrees))
-        bot.sendMessage(chat_id, msg, parse_mode="Markdown")
+        bot.sendMessage(settings["chat_id"], msg, parse_mode="Markdown")
     except telepot.exception.TooManyRequestsError as e:
-        bot.sendMessage(chat_id, "Error getting weather data: {}".format(e.description))
+        bot.sendMessage(settings["chat_id"], "Error getting weather data: {}".format(e.description))
 
 
-def send_weather_forecast_3h(bot, chat_id, city_id, n=48):
+def send_weather_forecast_3h(bot, settings):
     global owm
-    bot.sendMessage(chat_id, "*Weather report for {}*".format("Burgdorf"), parse_mode="Markdown")
+    bot.sendMessage(settings["chat_id"], "*Weather report for {}*".format(settings["city"]), parse_mode="Markdown")
     try:
-        forecasts = owm.forecast(city_id, n)
+        forecasts = owm.forecast(settings["city_id"], settings["forecast_periods"])
     except telepot.exception.TooManyRequestsError as e:
-        bot.sendMessage(chat_id, "Error getting weather data: {}".format(e.description))
+        bot.sendMessage(settings["chat_id"], "Error getting weather data: {}".format(e.description))
     if type(forecasts) is list and len(forecasts) > 0:
         day = forecasts[0].date.day
         msg = forecasts[0].date.strftime("*%a %d.%m.*\n")
@@ -91,60 +91,28 @@ def send_weather_forecast_3h(bot, chat_id, city_id, n=48):
                             forecast.wind_speed,
                             degree_to_meteo(forecast.wind_degrees))
             else:
-                bot.sendMessage(chat_id, msg, parse_mode="Markdown")
+                bot.sendMessage(settings["chat_id"], msg, parse_mode="Markdown")
                 day = forecast.date.day
                 msg = forecast.date.strftime("*%a %d.%m.*\n")
     else:
-        bot.sendMessage(chat_id, "Currently no weather data available.")
+        bot.sendMessage(settings["chat_id"], "Currently no weather data available.")
 
 
-class Settings:
+class Settings(PersistentDict):
     DefaultCity = "Burgdorf"
     DefaultCityId = 2941405
     DefaultForecastDays = 7
+    DefaultForecastPeriods = 24//3*5
     DefaultHour = 6
 
-    def __init__(self):
-        self.report_hour = Settings.DefaultCity
-        self.forecast_city_id = Settings.DefaultCityId
-        self.forecast_city = Settings.DefaultCity
-        self.forecast_days = Settings.DefaultForecastDays
-
-    # TODO: move following functions here ...
-
-
-def settings_hour(chat_id):
-    global settings
-    return settings[chat_id]["report"]["hour"] \
-        if type(settings[chat_id]["report"]["hour"]) is int else ChatUser.DefaultHour
-
-
-def settings_city_id(chat_id):
-    global settings
-    return settings[chat_id]["forecast"]["city_id"] \
-        if type(settings[chat_id]["forecast"]["city_id"]) is int else ChatUser.DefaultCityId
-
-
-def settings_city(chat_id):
-    global settings
-    return settings[chat_id]["forecast"]["city"] \
-        if type(settings[chat_id]["forecast"]["city"]) is int else ChatUser.DefaultCity
-
-
-def settings_days(chat_id):
-    global settings
-    return settings[chat_id]["forecast"]["days"] \
-        if type(settings[chat_id]["forecast"]["days"]) is int else ChatUser.DefaultCityId
-
-
-def read_settings(chat_id):
-    global settings
-    return settings[chat_id]
-
-
-def write_settings(chat_id, new_settings):
-    global settings
-    settings[chat_id] = new_settings
+    def __init__(self, chat_id):
+        super(Settings, self).__init__(".weatherbot-{}.settings.json".format(chat_id))
+        self["chat_id"] = chat_id
+        self["report_hour"] = self.get("report_hour", Settings.DefaultHour)
+        self["city_id"] = self.get("city_id", Settings.DefaultCityId)
+        self["city"] = self.get("city", Settings.DefaultCity)
+        self["forecast_days"] = self.get("forecast_days", Settings.DefaultForecastDays)
+        self["forecast_periods"] = self.get("forecast_periods", Settings.DefaultForecastPeriods)
 
 
 class ChatUser(telepot.helper.ChatHandler):
@@ -165,37 +133,32 @@ class ChatUser(telepot.helper.ChatHandler):
         self.verbose = verbose
         self.owm_job = None
         self.state = ChatUser.State.Default
-        self.city_id = ChatUser.DefaultCityId
-        self.city = ChatUser.DefaultCity
-        self.forecast_days = ChatUser.DefaultForecastDays
-        self.hour = ChatUser.DefaultHour
-        self.settings = easydict()
-        print(self.chat_id)
+        self.settings = Settings(self.chat_id)
+        self.city_choices = []
 
     def open(self, initial_msg, seed):
         content_type, chat_type, chat_id = telepot.glance(initial_msg)
-        self.settings = read_settings(chat_id)
-        pprint(self.settings)
+        self.settings = Settings(chat_id)
+        print(self.settings)
         self.init_scheduler(chat_id)
 
     def init_scheduler(self, chat_id):
         global scheduler
         self.owm_job = scheduler.add_job(
             send_weather_forecast,
-            trigger="cron", hour=settings_hour(chat_id),
+            trigger="cron", hour=self.settings["report_hour"],
             kwargs={"bot": self.bot,
-                    "chat_id": chat_id,
-                    "city_id": settings_city_id(chat_id),
-                    "days": settings_days(chat_id)})
+                    "settings": self.settings})
 
     def on__idle(self, event):
-        pass
+        if self.verbose:
+            print("idling ...")
 
     def on_close(self, msg):
         pprint(msg)
         content_type, chat_type, chat_id = telepot.glance(msg)
         if chat_id == self.chat_id:
-            write_settings(self.chat_id, self.settings)
+            self.settings.sync()
         else:
             print("Warning: received chat_id doesn't equal self.chat_id.")
         if self.verbose:
@@ -218,24 +181,24 @@ class ChatUser(telepot.helper.ChatHandler):
         if query_data == "7d":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Simple weather forecast for {}".format(settings_city(from_id)))
-            send_weather_forecast(self.bot, from_id, settings_city_id(from_id), settings_days(from_id))
+                text="Simple weather forecast for {}".format(self.settings["city"]))
+            send_weather_forecast(self.bot, self.settings)
         elif query_data == "3h":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Detailed weather forecast for {}".format(settings_city(from_id)))
-            send_weather_forecast_3h(self.bot, from_id, settings_city_id(from_id))
+                text="Detailed weather forecast for {}".format(self.settings["city"]))
+            send_weather_forecast_3h(self.bot, self.settings)
         elif query_data == "current":
             self.bot.answerCallbackQuery(
                 query_id,
-                text="Current weather report for {}".format(settings_city(from_id)))
-            send_weather_report(self.bot, from_id, settings_city_id(from_id))
+                text="Current weather report for {}".format(self.settings["city"]))
+            send_weather_report(self.bot, self.settings)
         else:
             pass
         self.send_main_menu()
 
     def on_chat_message(self, msg):
-        global scheduler
+        global scheduler, city_list
         content_type, chat_type, chat_id = telepot.glance(msg)
         print(chat_id, self.chat_id)
         if content_type == "text":
@@ -244,44 +207,84 @@ class ChatUser(telepot.helper.ChatHandler):
             msg_text = msg["text"]
             if self.state == ChatUser.State.Default:
                 if msg_text.startswith("/start"):
-                    self.sender.sendMessage("*Hi there, I'm your personal meteorological bot!*",
+                    self.sender.sendMessage("*Hi there, I'm your personal meteorological bot!* " +
+                                            chr(0x2600) + chr(0x26C5),
                                             parse_mode="Markdown")
-                    self.send_main_menu()
+                    self.send_help()
                 elif msg_text.startswith("/weather") or msg_text.startswith("wetter"):
                     c = msg_text.split()[1:]
                     subcmd = c[0].lower() if len(c) > 0 else None
-                    if subcmd is None or subcmd == "current":
-                        send_weather_report(self.bot, chat_id, settings_city_id(chat_id))
+                    if subcmd is None:
+                        self.send_main_menu()
+                    elif subcmd == "current":
+                        send_weather_report(self.bot, self.settings)
                     elif subcmd == "simple":
-                        send_weather_forecast(self.bot, chat_id, settings_city_id(chat_id), settings_days(chat_id))
+                        send_weather_forecast(self.bot, self.settings)
                     elif subcmd in ["detailed", "3h"]:
-                        send_weather_forecast_3h(self.bot, chat_id, settings_city_id(chat_id))
+                        send_weather_forecast_3h(self.bot, self.settings)
                 elif msg_text.startswith("/help"):
-                    self.sender.sendMessage("Available commands:\n\n"
-                                            "/help show this message\n"
-                                            "/weather Current weather report\n"
-                                            "/weather `simple` simple weather forecast\n"
-                                            "/weather `detailed` detailed weather forecast\n"
-                                            "/start (re)start the bot\n",
-                                            parse_mode="Markdown")
+                    self.send_help()
+                elif msg_text.startswith("/selectcity"):
+                    self.sender.sendMessage("Type the name of your city.")
+                    self.state = ChatUser.State.AwaitingCityName
                 elif msg_text.startswith("/"):
                     self.sender.sendMessage("Unknown command. Type /help for further info.")
                 else:
-                    self.sender.sendMessage("I'd don't like to chat. Enter /help for more info.")
+                    self.sender.sendMessage("Enter /help for more info.")
             elif self.state == ChatUser.State.AwaitingCityName:
-                pass
+                self.city_choices = list(city_list.find(msg_text))
+                if len(self.city_choices) > 1:
+                    msg = "Found {} cities that match \"{}\". "\
+                        "Please select one by typing its number:"\
+                        .format(len(self.city_choices), msg_text)
+                    self.send_city_choices(msg)
+                elif len(self.city_choices) == 1:
+                    self.settings["city"] = self.city_choices[0]["name"]
+                    self.settings["city_id"] = self.city_choices[0]["_id"]
+                    self.sender.sendMessage("City '{}' selected.".format(self.settings["city"]))
+                    self.settings.sync()
+                    self.state = ChatUser.State.Default
             elif self.state == ChatUser.State.AwaitingCitySelection:
-                pass
+                idx = int(msg_text) - 1
+                if idx >= 0 and idx < len(self.city_choices):
+                    self.settings["city"] = self.city_choices[idx]["name"]
+                    self.settings["city_id"] = self.city_choices[idx]["_id"]
+                    self.sender.sendMessage("City '{}' (#{:d}) selected."
+                                            .format(self.settings["city"], self.settings["city_id"]))
+                    self.settings.sync()
+                    self.state = ChatUser.State.Default
+                else:
+                    self.send_city_choices("Invalid selection. Please try again.")
         else:
             self.sender.sendMessage("Your '{}' has been moved to Nirvana ...".format(content_type))
 
+    def send_city_choices(self, msg):
+        msg += "\n\n"
+        code = 1
+        for city in self.city_choices:
+            msg += "{:d} – {} (<a href=\"https://maps.google.com/maps?q={:.7f},{:.7f}\">{:.3f} {:.3f}</a> #{:d})\n" \
+                .format(code, city["name"],
+                        city["coord"]["lat"], city["coord"]["lon"],
+                        city["coord"]["lat"], city["coord"]["lon"],
+                        city["_id"])
+            code += 1
+        self.sender.sendMessage(msg, parse_mode="HTML")
+        self.state = ChatUser.State.AwaitingCitySelection
+
+    def send_help(self):
+        self.sender.sendMessage("Available commands:\n\n"
+                                "/help show this message\n"
+                                "/weather Current weather report\n"
+                                "/weather `simple` simple weather forecast\n"
+                                "/weather `detailed` detailed weather forecast\n"
+                                "/selectcity select the city you want reports and forecasts for\n"
+                                "/start (re)start the bot\n",
+                                parse_mode="Markdown")
+
 
 def main():
-    global bot, authorized_users, verbose, settings, scheduler, owm, owm_api_key
+    global bot, authorized_users, verbose, scheduler, owm, owm_api_key, city_list
     config_filename = "weatherbot-config.json"
-    shelf = shelve.open(".weatherbot.shelf")
-    if APPNAME in shelf.keys():
-        settings = easydict(shelf[APPNAME])
     try:
         with open(config_filename, "r") as config_file:
             config = json.load(config_file)
@@ -302,6 +305,13 @@ def main():
     verbose = config.get("verbose", True)
     owm_api_key = config.get("openweathermap", {}).get("api_key")
     owm = OpenWeatherMap(owm_api_key) if owm_api_key else None
+    city_list_filename = config.get("openweathermap", {}).get("city_list")
+    city_list = CityList()
+    if city_list_filename:
+        for p in city_list.read(city_list_filename):
+            print("\rLoading city list ... {:d}%".format(p), end="", flush=True)
+        print()
+
     bot = telepot.DelegatorBot(telegram_bot_token, [
         include_callback_query_chat_id(
             pave_event_space())(per_chat_id_in(authorized_users, types="private"),
@@ -309,18 +319,13 @@ def main():
                                 ChatUser,
                                 timeout=3600)
     ])
-    if verbose:
-        pprint(settings)
     scheduler.start()
     try:
-        bot.message_loop(run_forever="Meteo Bot listening ...")
+        bot.message_loop(run_forever="Bot listening ...")
     except KeyboardInterrupt:
         pass
     if verbose:
         print("Exiting ...")
-    shelf[APPNAME] = settings
-    shelf.sync()
-    shelf.close()
     scheduler.shutdown()
 
 if __name__ == "__main__":
