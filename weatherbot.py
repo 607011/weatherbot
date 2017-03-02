@@ -198,7 +198,14 @@ class ChatUser(telepot.helper.ChatHandler):
             if self.verbose:
                 pprint(msg)
             msg_text = msg["text"]
-            if self.state == ChatUser.State.Default:
+            if msg_text.startswith("/help"):
+                self.send_help()
+            elif msg_text.startswith("/selectcity"):
+                self.sender.sendMessage("The currently selected city is \"{}\". "
+                                        "Tell me the name of the city you'd like reports/forecasts for."
+                                        .format(self.settings["city"]))
+                self.state = ChatUser.State.AwaitingCityName
+            elif self.state == ChatUser.State.Default:
                 if msg_text.startswith("/start"):
                     self.sender.sendMessage("*Hi there, I'm your personal meteorological bot!* " +
                                             chr(0x2600) + chr(0x26C5),
@@ -215,17 +222,8 @@ class ChatUser(telepot.helper.ChatHandler):
                         send_weather_forecast(self.bot, self.settings)
                     elif subcmd in ["detailed", "3h"]:
                         send_weather_forecast_3h(self.bot, self.settings)
-                elif msg_text.startswith("/help"):
-                    self.send_help()
-                elif msg_text.startswith("/selectcity"):
-                    self.sender.sendMessage("The currently selected city is \"{}\". "
-                                            "Tell me the name of the city you'd like reports/forecasts for."
-                                            .format(self.settings["city"]))
-                    self.state = ChatUser.State.AwaitingCityName
                 elif msg_text.startswith("/"):
                     self.sender.sendMessage("Unknown command. Type /help for further info.")
-                else:
-                    self.sender.sendMessage("Enter /help for more info.")
 
             elif self.state == ChatUser.State.AwaitingCityName:
                 self.city_choices = list(city_list.find(msg_text))
@@ -242,10 +240,12 @@ class ChatUser(telepot.helper.ChatHandler):
                     self.settings.sync()
                     self.state = ChatUser.State.Default
                 else:
-                    self.sender.sendMessage("There's no weather data available for {}. Please try again."
+                    self.sender.sendMessage("There's no weather data available for \"{}\". Please try again."
                                             .format(msg_text))
 
             elif self.state == ChatUser.State.AwaitingCitySelection:
+                if len(msg_text) > 0 and msg_text[0] == "/":
+                    msg_text = msg_text[1:]
                 try:
                     idx = int(msg_text) - 1
                 except ValueError:
@@ -260,23 +260,27 @@ class ChatUser(telepot.helper.ChatHandler):
                         self.state = ChatUser.State.Default
                     else:
                         self.send_city_choices("Invalid selection. Please try again.")
+            elif msg_text.startswith("/"):
+                self.sender.sendMessage("Unknown command. Type /help for further info.")
+            else:
+                self.sender.sendMessage("Enter /help for more info.")
         else:
-            self.sender.sendMessage("Your '{}' has been moved to Nirvana ...".format(content_type))
+            self.sender.sendMessage("Your \"{}\" has been moved to Nirvana ...".format(content_type))
 
     def send_city_choices(self, msg):
         msg += "\n\n"
         code = 1
         for city in self.city_choices:
-            msg += "{:d} – {} (<a href=\"https://maps.google.com/maps?q={:.7f},{:.7f}\">{:.3f} {:.3f}</a> #{:d})\n" \
+            msg += "/{:d} – {} (<a href=\"https://maps.google.com/maps?q={:.7f},{:.7f}\">{:.3f} {:.3f}</a> #{:d})\n" \
                 .format(code, city["name"],
                         city["coord"]["lat"], city["coord"]["lon"],
                         city["coord"]["lat"], city["coord"]["lon"],
                         city["_id"])
             code += 1
-        msg += "\nHint: "\
+        msg += "\n<i>Hint: "\
                 "You can tap/click on the coordinates to open Google Maps "\
                 "at the respective latitude/longitude "\
-                "if you're unsure which option is correct."
+                "if you're unsure which option is correct.</i>"
         self.sender.sendMessage(msg, parse_mode="HTML")
         self.state = ChatUser.State.AwaitingCitySelection
 
