@@ -41,7 +41,7 @@ def send_weather_report(bot, settings):
           "wind {:.0f} km/h from {:s}\n" \
           "{}% humidity\n" \
           "sunrise {} / sunset {}\n\n" \
-          .format("Burgdorf",
+          .format(settings.city,
                   w.description,
                   w.temp, w.temp_min, w.temp_max,
                   w.wind_speed,
@@ -251,7 +251,7 @@ class ChatUser(telepot.helper.ChatHandler):
                 except ValueError:
                     self.sender.sendMessage("Please type a number between 1 and {}.".format(len(self.city_choices)))
                 else:
-                    if idx >= 0 and idx < len(self.city_choices):
+                    if 0 <= idx < len(self.city_choices):
                         self.settings["city"] = self.city_choices[idx]["name"]
                         self.settings["city_id"] = self.city_choices[idx]["_id"]
                         self.sender.sendMessage("All further reports/forecasts will refer to \"{}\" (#{:d})."
@@ -278,9 +278,9 @@ class ChatUser(telepot.helper.ChatHandler):
                         city["_id"])
             code += 1
         msg += "\n<i>Hint: "\
-                "You can tap/click on the coordinates to open Google Maps "\
-                "at the respective latitude/longitude "\
-                "if you're unsure which option is correct.</i>"
+               "You can tap/click on the coordinates to open Google Maps "\
+               "at the respective latitude/longitude "\
+               "if you're unsure which option is correct.</i>"
         self.sender.sendMessage(msg, parse_mode="HTML")
         self.state = ChatUser.State.AwaitingCitySelection
 
