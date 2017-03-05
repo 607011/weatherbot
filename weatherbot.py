@@ -10,13 +10,13 @@
 
 """
 
-
 import telepot
 from telepot.namedtuple import InlineKeyboardMarkup, InlineKeyboardButton
 from telepot.delegate import per_chat_id_in, create_open, pave_event_space, include_callback_query_chat_id
 from pprint import pprint
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
+from pyowm.city import CityList, City, GeoCoord
 from pyowm.openweathermap import *
 from utils import *
 from enum import Enum
@@ -319,12 +319,12 @@ def main():
     verbose = config.get("verbose", True)
     owm_api_key = config.get("openweathermap", {}).get("api_key")
     owm = OpenWeatherMap(owm_api_key) if owm_api_key else None
+
     city_list_filename = config.get("openweathermap", {}).get("city_list")
     city_list = CityList()
     if city_list_filename:
-        for p in city_list.read(city_list_filename):
-            print("\rLoading city list ... {:d}%".format(p), end="", flush=True)
-        print()
+        print("Loading city list ...")
+        city_list.read(city_list_filename)
 
     bot = telepot.DelegatorBot(telegram_bot_token, [
         include_callback_query_chat_id(
