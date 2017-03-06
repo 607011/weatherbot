@@ -16,8 +16,8 @@ from telepot.delegate import per_chat_id_in, create_open, pave_event_space, incl
 from pprint import pprint
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
-from pyowm.city import CityList, City, GeoCoord
-from pyowm.openweathermap import *
+from pyowm.city import CityList
+from pyowm.openweathermap import OpenWeatherMap
 from utils import *
 from enum import Enum
 
