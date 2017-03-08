@@ -17,7 +17,7 @@ from pprint import pprint
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
 from pyowm.city import CityList
-from pyowm.openweathermap import OpenWeatherMap
+from pyowm.openweathermap import OpenWeatherMap, degree_to_meteo
 from utils import *
 from enum import Enum
 
@@ -41,7 +41,7 @@ def send_weather_report(bot, settings):
           "wind {:.0f} km/h from {:s}\n" \
           "{}% humidity\n" \
           "sunrise {} / sunset {}\n\n" \
-          .format(settings.city,
+          .format(settings["city"],
                   w.description,
                   w.temp, w.temp_min, w.temp_max,
                   w.wind_speed,
@@ -252,8 +252,8 @@ class ChatUser(telepot.helper.ChatHandler):
                     self.sender.sendMessage("Please type a number between 1 and {}.".format(len(self.city_choices)))
                 else:
                     if 0 <= idx < len(self.city_choices):
-                        self.settings["city"] = self.city_choices[idx]["name"]
-                        self.settings["city_id"] = self.city_choices[idx]["_id"]
+                        self.settings["city"] = self.city_choices[idx].name
+                        self.settings["city_id"] = self.city_choices[idx].city_id
                         self.sender.sendMessage("All further reports/forecasts will refer to \"{}\" (#{:d})."
                                                 .format(self.settings["city"], self.settings["city_id"]))
                         self.settings.sync()
@@ -272,10 +272,10 @@ class ChatUser(telepot.helper.ChatHandler):
         code = 1
         for city in self.city_choices:
             msg += "/{:d} – {} (<a href=\"https://maps.google.com/maps?q={:.7f},{:.7f}\">{:.3f} {:.3f}</a> #{:d})\n" \
-                .format(code, city["name"],
-                        city["coord"]["lat"], city["coord"]["lon"],
-                        city["coord"]["lat"], city["coord"]["lon"],
-                        city["_id"])
+                .format(code, city.name,
+                        city.coord.lat, city.coord.lon,
+                        city.coord.lat, city.coord.lon,
+                        city.city_id)
             code += 1
         msg += "\n<i>Hint: "\
                "You can tap/click on the coordinates to open Google Maps "\
