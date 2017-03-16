@@ -325,8 +325,9 @@ def main():
     city_list_filename = config.get('openweathermap', {}).get('city_list')
     city_list = CityList()
     if city_list_filename:
-        print('Loading city list ...')
-        city_list.read(city_list_filename)
+        city_list.read(city_list_filename,
+                       lambda p: print('\rLoading city list ... {:d}%'.format(p), end='', flush=True))
+        print()
 
     bot = telepot.DelegatorBot(telegram_bot_token, [
         include_callback_query_chat_id(
