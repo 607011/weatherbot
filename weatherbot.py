@@ -202,7 +202,7 @@ class ChatUser(telepot.helper.ChatHandler):
             msg_text = msg['text']
             if msg_text.startswith('/help'):
                 self.send_help()
-            elif msg_text.startswith('/selectcity'):
+            elif msg_text.startswith('/city'):
                 self.sender.sendMessage('The currently selected city is "{}". '
                                         'Tell me the name of the city you’d like reports/forecasts for.'
                                         .format(self.settings['city']))
@@ -293,9 +293,9 @@ class ChatUser(telepot.helper.ChatHandler):
                                 "/weather `current` current weather\n"
                                 "/weather `simple` simple weather forecast\n"
                                 "/weather `detailed` detailed weather forecast\n"
-                                "/selectcity select the city you want reports and forecasts for\n"
+                                "/city select the city you want reports and forecasts for\n"
                                 "/start (re)start the bot\n",
-                                parse_mode="Markdown")
+                                parse_mode='Markdown')
 
 
 def main():
